@@ -90,7 +90,7 @@ def convert_to_batches(signals, batch_size=10, steps_ahead=1):
     start = 0
     batches_in = []
     batches_out = []
-    while start + batch_size < len(signals):
+    while start + batch_size <= len(signals):
         batch = signals[start: start + batch_size]
 
         batches_in.append(np.array([s[:-steps_ahead] for s in batch]).reshape(batch_size, -1, 1))

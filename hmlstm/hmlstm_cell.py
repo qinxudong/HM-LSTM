@@ -1,6 +1,8 @@
+#  原来的tensorflow.python.ops.rnn_cell_impl._linear现在放到tensorflow.contrib.rnn.python.ops.core_rnn_cell._linear。
+
 from tensorflow.python.framework import ops
-from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import rnn_cell_impl
+from tensorflow.python.ops import array_ops, rnn_cell_impl
+from tensorflow.contrib.rnn.python.ops import core_rnn_cell
 import tensorflow as tf
 import collections
 
@@ -66,7 +68,7 @@ class HMLSTMCell(rnn_cell_impl.RNNCell):
 
         bias_init = tf.constant_initializer(-1e5, dtype=tf.float32)
         # [B, 4 * h_l + 1]
-        concat = rnn_cell_impl._linear(states, length, bias=False,
+        concat = core_rnn_cell._linear(states, length, bias=False,
                                        bias_initializer=bias_init)
 
         gate_splits = tf.constant(
