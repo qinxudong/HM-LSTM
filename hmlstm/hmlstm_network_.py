@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
-from .hmlstm_cell import HMLSTMCell, HMLSTMState
-from .multi_hmlstm_cell import MultiHMLSTMCell
+from .hmlstm_cell_ import HMLSTMCell, HMLSTMState
+from .multi_hmlstm_cell_ import MultiHMLSTMCell
 
 class HMLSTMNetwork(object):
     def __init__(self,
@@ -234,8 +234,7 @@ class HMLSTMNetwork(object):
             h_aboves = self.get_h_aboves([cs.h for cs in cell_states], batch_size, hmlstm)# [B, sum(ha_l)]
             hmlstm_in = tf.concat((elem, h_aboves), axis=1)# [B, I] + [B, sum(ha_l)] -> [B, I + sum(ha_l)]
             _, state = hmlstm(hmlstm_in, cell_states)
-            # a list of (c=[B, h_l], h=[B, h_l], z=[B, 1]) ->
-            # a list of [B, h_l + h_l + 1]
+            # a list of (c=[B, h_l], h=[B, h_l], z=[B, 1])  ->  a list of (c=[B, h_l], h=[B, h_l], z=[B, 1])
             concated_states = [tf.concat(tuple(s), axis=1) for s in state]
             return tf.concat(concated_states, axis=1)    # [B, H]
 

@@ -31,7 +31,7 @@ batches_in, batches_out = convert_to_batches(signals, batch_size=10)
 # print(batches_in.shape, batches_out.shape)
 
 task = 'regression'
-epochs = 50
+epochs = 5
 num_layers = 2
 tf.reset_default_graph()
 network = HMLSTMNetwork(input_size=1, output_size=1, task=task, hidden_state_sizes=30,
