@@ -55,10 +55,12 @@ class HMLSTMNetwork(object):
         elif task == 'regression':
             self._loss_function = lambda logits, labels: tf.square((logits - labels))
 
-        batch_in_shape = (None, None, self._input_size)# (T, B, input_size)
-        batch_out_shape = (None, None, self._output_size)# (T, B, input_size)
-        self.batch_in = tf.placeholder(tf.float32, shape=batch_in_shape, name='batch_in')
-        self.batch_out = tf.placeholder(tf.float32, shape=batch_out_shape, name='batch_out')
+        # batch_in_shape = (None, None, self._input_size)# (T, B, input_size)
+        # batch_out_shape = (None, None, self._output_size)# (T, B, input_size)
+        # self.batch_in = tf.placeholder(tf.float32, shape=batch_in_shape, name='batch_in')
+        # self.batch_out = tf.placeholder(tf.float32, shape=batch_out_shape, name='batch_out')
+        self.batch_in = tf.placeholder(tf.int32, shape=[None, None], name='batch_in')
+        self.batch_out = tf.placeholder(tf.int32, shape=[None, None], name='batch_out')
         self._optimizer = tf.train.AdamOptimizer(1e-3)
         #  初始化参数
         self._initialize_output_variables()
@@ -168,8 +170,8 @@ class HMLSTMNetwork(object):
             loss = self._loss_function(**loss_args)
 
             if self._task == 'classification':
-                loss = tf.expand_dims(loss, -1) # 这里由于tf.nn.softmax_cross_entropy_with_logits输出loss会比logits
-                                                # 或者labels降一维，因此expand_dims让loss回到(B, 1)。
+                loss = tf.expand_dims(loss, -1) # 这里由于tf.nn.softmax_cross_entropy_with_logits输出loss会比logits或者
+                                                # labels降一维，因此expand_dims让loss回到(B, 1)。
 
         return loss, prediction
 
@@ -225,29 +227,33 @@ class HMLSTMNetwork(object):
         return h_aboves
 
     def network(self, reuse):
-        batch_size = tf.shape(self.batch_in)[1]
+        batch_size = tf.shape(self.batch_in)[0]
         hmlstm = self.create_multicell(batch_size, reuse)
 
         def scan_rnn(accum, elem):  # accum: 堆叠所有层的c,h,z的值组成的tensor, shape==[B, H]
                                     # elem: 一个batch, 一个时间步长的输入, shape==[B, I]
-            cell_states = self.split_out_cell_states(accum)# [B, H] -> [([B, h_l], [B, h_l], [B, 1]) for l in L]
-            h_aboves = self.get_h_aboves([cs.h for cs in cell_states], batch_size, hmlstm)# [B, sum(ha_l)]
-            hmlstm_in = tf.concat((elem, h_aboves), axis=1)# [B, I] + [B, sum(ha_l)] -> [B, I + sum(ha_l)]
+            cell_states = self.split_out_cell_states(accum)     # [B, H] -> [([B, h_l], [B, h_l], [B, 1]) for l in L]
+            h_aboves = self.get_h_aboves([cs.h for cs in cell_states], batch_size, hmlstm)  # [B, sum(ha_l)]
+            hmlstm_in = tf.concat((elem, h_aboves), axis=1)     # [B, I] + [B, sum(ha_l)] -> [B, I + sum(ha_l)]
             _, state = hmlstm(hmlstm_in, cell_states)
             # a list of (c=[B, h_l], h=[B, h_l], z=[B, 1])  ->  a list of (c=[B, h_l], h=[B, h_l], z=[B, 1])
             concated_states = [tf.concat(tuple(s), axis=1) for s in state]
-            return tf.concat(concated_states, axis=1)    # [B, H]
+            return tf.concat(concated_states, axis=1)           # [B, H]
 
         elem_len = (sum(self._hidden_state_sizes) * 2) + self._num_layers
         initial = tf.zeros([batch_size, elem_len])              # [B, H], H = elem_len
-        states = tf.scan(scan_rnn, self.batch_in, initial)      # [T, B, H]
+        batch_in_onehot = tf.one_hot(self.batch_in, self._input_size)   # [B, T] -> [B, T, I]
+        batch_in_trans = tf.transpose(batch_in_onehot, [1, 0, 2])       # [T, B, I]
+        states = tf.scan(scan_rnn, batch_in_trans, initial)     # [T, B, H]
         
         def map_indicators(elem):
             state = self.split_out_cell_states(elem)
             return tf.concat([l.z for l in state], axis=1)
         raw_indicators = tf.map_fn(map_indicators, states)      # [T, B, L]
         indicators = tf.transpose(raw_indicators, [1, 2, 0])    # [B, L, T]
-        to_map = tf.concat((states, self.batch_out), axis=2)    # [T, B, H+O], O = output_size
+        batch_out_onehot = tf.one_hot(self.batch_out, self._output_size)    # [B, T] -> [B, T, O], O = output_size
+        batch_out_trans = tf.transpose(batch_out_onehot, [1, 0, 2])         # [T, B, O]
+        to_map = tf.concat((states, batch_out_trans), axis=2)   # [T, B, H+O]
 
         def map_output(elem):
             splits = tf.constant([elem_len, self._output_size])
@@ -272,8 +278,7 @@ class HMLSTMNetwork(object):
             self._graph = self.network(reuse=False)
         return self._graph
 
-    def train(self, batches_in, batches_out, variable_path='weights/unnamed_weights', load_weights=False, save_weights=False,
-              epochs=1):
+    def train(self, batches_in, batches_out, variable_path='weights/unnamed_weights', load_weights=False, epochs=1):
         """
         Train the network.
 
@@ -308,11 +313,38 @@ class HMLSTMNetwork(object):
             for batch_in, batch_out in zip(batches_in, batches_out):
                 fetches = [train, loss]
                 feed_dict = {
-                    self.batch_in: np.swapaxes(batch_in, 0, 1),  # (B, T, input_size) --> (T, B, input_size)
-                    self.batch_out: np.swapaxes(batch_out, 0, 1)# (B, T, input_size) --> (T, B, input_size)
+                    self.batch_in: batch_in,     # (B, T)
+                    self.batch_out: batch_out    # (B, T)
                 }
                 _, _loss = self._session.run(fetches, feed_dict)
                 print('loss:', _loss)
+                losses.append(_loss)
+
+        self.save_variables(variable_path)
+        return losses
+
+    def train_on_generator(self, generator, variable_path='weights/unnamed_weights', load_weights=False):
+        train, loss, _, _ = self._get_graph()
+        losses = []
+
+        if not load_weights:
+            if self._session is None:
+                self._session = tf.Session()
+                init = tf.global_variables_initializer()
+                self._session.run(init)
+        else:
+            self.load_variables(variable_path)
+
+        for idx, epoch in enumerate(generator.gen_epochs()):
+            print('\nEpoch {}'.format(idx))
+            for batch_idx, (batch_in, batch_out) in enumerate(epoch):
+                fetches = [train, loss]
+                feed_dict = {
+                    self.batch_in: batch_in,    # (B, T)
+                    self.batch_out: batch_out   # (B, T)
+                }
+                _, _loss = self._session.run(fetches, feed_dict)
+                print('Loss of batch {}: '.format(batch_idx), _loss)
                 losses.append(_loss)
 
         self.save_variables(variable_path)

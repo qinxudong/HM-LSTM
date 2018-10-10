@@ -100,3 +100,30 @@ def convert_to_batches(signals, batch_size=10, steps_ahead=1):
 
     return np.array(batches_in), np.array(batches_out)
     
+class Generator(object):
+    def __init__(self, raw_data, batch_size, num_steps, num_epochs):
+        self.batch_size = batch_size
+        self.num_steps = num_steps
+        self.num_epochs = num_epochs
+        self.raw_data = np.array(raw_data, dtype=np.int32)
+        self.data_len = len(raw_data)
+        self.batch_partition_len = self.data_len // batch_size
+        self.num_batches_per_epoch = (self.batch_partition_len - 1) // num_steps
+        print('Total {} batches per epoch.'.format(self.num_batches_per_epoch))
+        print('Batch shape: [{}, {}]'.format(batch_size, num_steps))
+
+    def gen_epochs(self):
+
+        def ptb_iterator():
+            data = np.zeros([self.batch_size, self.batch_partition_len], dtype=np.int32)
+            for i in range(self.batch_size):
+                data[i] = self.raw_data[self.batch_partition_len * i:self.batch_partition_len * (i + 1)]
+            if self.num_batches_per_epoch == 0:
+                raise ValueError()
+            for i in range(self.num_batches_per_epoch):
+                x = data[:, i * self.num_steps: (i + 1) * self.num_steps]
+                y = data[:, i * self.num_steps + 1: (i + 1) * self.num_steps + 1]
+                yield (x, y)
+
+        for i in range(self.num_epochs):
+            yield ptb_iterator()
